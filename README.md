@@ -1,4 +1,6 @@
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project aims at drawing on canvas by reading the data points from a CSV file.
+
+To install the project, please follow the instructions below:
 
 ## Available Scripts
 
