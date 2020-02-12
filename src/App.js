@@ -28,10 +28,38 @@ const Canvas = ({ legend, rows }) => {
     ctx.fill();
   };
 
+  // Get the mouse co ordinates to show x,y,type, prop when hovered over the points
+  const getCoords = e => {
+    const canvas = canvasRef.current;
+    let bound = canvas.getBoundingClientRect();
+    //get the mouse x and y co-ordinates
+    let mouseX = e.pageX - bound.top;
+    let mouseY = e.pageY - bound.left;
+    let coOrdinates;
+
+    if (rows) {
+      rows.forEach(row => {
+        const { x, y } = row;
+        /* Check if the distance between two points 
+           is less than 5 so that it shows the tooltip for
+           the entire area of the polygon and not just the centre (x,y)
+           TODO If there is any method on canvas to achieve this (eg isPointInPath)
+        */
+        if (distance(mouseX, mouseY, x, y) < 5) {
+          coOrdinates = row;
+        }
+      });
+    }
+    return coOrdinates;
+  };
+
   // componentDidUpdate
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
+
+    // Uncomment to add the mousemove listener to show co ordinates 
+    // canvas.addEventListener('mousemove', getCoords, false);
 
     if (rows.length && ctx) {
       // go through every row
@@ -40,7 +68,6 @@ const Canvas = ({ legend, rows }) => {
         const radius = 5;
         const shape = legend.shapes[type];
         const color = legend.colors[prop];
-
         // Reset the current path
         if (nextOccurrence) {
           ctx.beginPath();
@@ -62,11 +89,42 @@ const Canvas = ({ legend, rows }) => {
   );
 };
 
+// distance between two points
+const distance = (x0, y0, x1, y1) => Math.hypot(x1 - x0, y1 - y0);
+
 const counterFactory = initial => () => initial++;
-const counter = counterFactory(4);
+const counter = counterFactory(3);
+// Establish websocket connection globally so that the connection happens just once on component mounts
+const ws = new WebSocket("ws://192.168.88.92:8080/");
 
 function App() {
   const [data, setData] = useState({ legend: {}, rows: [] });
+  const [dataFromWebSocket, setdataFromWebSocket] = useState([]);
+
+  const initWebsocket = () => {
+    ws.onopen = () => {
+      console.log("connection established...");
+    };
+    ws.onmessage = event => {
+      const response = JSON.parse(event.data);
+      /* Construct an array which has the same structure
+         as the csv response so that it can be directly
+          sent to _formatData method
+      */
+      const newData = {
+        x: response[0],
+        y: response[1],
+        type: response[2],
+        prop: response[3]
+      };
+      setdataFromWebSocket(prevState => {
+        return [...prevState, newData];
+      });
+    };
+    ws.onclose = () => {
+      initWebsocket();
+    };
+  };
 
   const _getRandomColor = () =>
     `#${Math.floor(Math.random() * 16777215)
@@ -93,6 +151,7 @@ function App() {
 
       newResult = {
         ...newResult,
+
         colors: newResult.colors.hasOwnProperty(row.prop)
           ? newResult.colors
           : {
@@ -111,31 +170,39 @@ function App() {
   };
 
   useEffect(() => {
-    async function getData() {
-      // fetch CSV.
-      const response = await fetch("/data/canvas01.csv");
+    /* call initWebSocket function in useEffect without any dependency as 
+        the event listener keep checking for any new message from websocket
+        once the websocket connection is established. 
+        Note: This logic is assumed to work and not been tested.
+        If it doesn't work, we might have to add dataFromWebSocket
+        state variable as a dependency to it
+    */
+    initWebsocket();
 
-      // read csv as string
-      const reader = response.body.getReader();
-      const result = await reader.read(); // raw array
-      const decoder = new TextDecoder("utf-8");
-      const csv = decoder.decode(result.value); // the csv text
+    // Uncomment the below function to read from csv
+    // async function getData() {
+    //   //fetch CSV.
+    //   const response = await fetch("/data/canvas01.csv");
 
-      // append property names to parse more clearly <x, y, type, prop>
-      // papa parse takes the first row in the CSV to be each row object's property name.
-      const results = Papa.parse(`x,y,type,prop\n${csv}`, { header: true }); // object with { data, errors, meta }
-      const rows = results.data; // array of objects
+    //   // read csv as string
+    //   const reader = response.body.getReader();
+    //   const result = await reader.read(); // raw array
+    //   const decoder = new TextDecoder("utf-8");
+    //   const csv = decoder.decode(result.value); // the csv text
 
-      // generates unique set of colors for each prop &
-      // generates unique set of regular sided polygons for each type.
-      const data = _formatData(rows);
-      setData({
-        legend: { colors: data.colors, shapes: data.shapes },
-        rows: data.rows
-      });
-    }
+    //   // append property names to parse more clearly <x, y, type, prop>
+    //   // papa parse takes the first row in the CSV to be each row object's property name.
+    //   const results = Papa.parse(`x,y,type,prop\n${csv}`, { header: true }); // object with { data, errors, meta }
+    //   const rows = results.data; // array of objects
+    // }
 
-    getData();
+    // getData();
+
+    const data = _formatData(dataFromWebSocket);
+    setData({
+      legend: { colors: data.colors, shapes: data.shapes },
+      rows: data.rows
+    });
   }, []);
 
   return (
